@@ -2,10 +2,21 @@
 use std::collections::{HashMap, HashSet};
 
 
-/// Construct that represnets a production rule: LHS -> RHS, where
-/// LHS should be a non-terminal (usually a sigle uppercase symbol),
+// TODO:
+// []. compute FIRST set for each non terminal
+// []. compute FOLLOW set for each non terminal
+// []. detect common prefixes
+// []. intro custom errors to work with IO
+// []. finish checking LL1 grammar
+// []. finish checking LR0 grammar
+// []. finish checking LR1 grammar
+// []. finish checking SLR1 grammar
+// []. implement custom display for Production
+
+/// Construct represneting a production rule: LHS -> RHS, where
+/// LHS should be a non-terminal (usually a sigle uppercase symbol).
 /// RHS should be a vector of strs, each of which represnets a possible
-/// expansion of LHS. Empty str means the LHS can derive empty string.
+/// expansion of LHS. `""` means the LHS can derive an empty string.
 pub struct Production<'p> {
     pub lhs: &'p str,
     pub rhs: Vec<&'p str>
@@ -14,15 +25,6 @@ pub struct Production<'p> {
 impl<'p> Production<'p> {
     pub fn new(lhs: &'p str, rhs: Vec<&'p str>) -> Self {
         Self { lhs, rhs }
-    }
-
-    // When a non-terminal can expand to several possibilities:
-    // A ->
-    // A -> aBy
-    // A -> c
-    // also written as A -> aBy | c |
-    pub fn extend_rhs(&mut self, new_rhs: &'p str) {
-        self.rhs.push(new_rhs);
     }
 
     pub fn is_left_recusrive(&self) -> bool {
@@ -99,6 +101,14 @@ impl<'a> Grammar<'a> {
     pub fn is_left_recusrive(&self) -> bool {
         self.prods.values().find(|p| p.is_left_recusrive()).is_some()
     }
+
+    pub fn is_LL1(&self) -> bool {
+        if self.is_left_recusrive() {
+            return false;
+        }
+        // TODO: check for common prefixes
+        true
+    }
 }
 
 
@@ -121,7 +131,6 @@ mod tests {
 
         assert!(g.is_cfg());
         assert!(g.prods.get("A").is_some());
-        // assert!(g.prods.get("A").unwrap().len() == 2);
         assert_eq!(g.prods.get("A").unwrap().lhs, "A");
         assert_eq!(g.prods.get("A").unwrap().rhs, vec!["", "bbA"]);
     }
