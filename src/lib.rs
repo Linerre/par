@@ -2,17 +2,47 @@
 use std::collections::{HashMap, HashSet};
 
 
+/// Construct that represnets a production rule: LHS -> RHS, where
+/// LHS should be a non-terminal (usually a sigle uppercase symbol),
+/// RHS should be a vector of strs, each of which represnets a possible
+/// expansion of LHS. Empty str means the LHS can derive empty string.
+pub struct Production<'p> {
+    pub lhs: &'p str,
+    pub rhs: Vec<&'p str>
+}
+
+impl<'p> Production<'p> {
+    pub fn new(lhs: &'p str, rhs: Vec<&'p str>) -> Self {
+        Self { lhs, rhs }
+    }
+
+    // When a non-terminal can expand to several possibilities:
+    // A ->
+    // A -> aBy
+    // A -> c
+    // also written as A -> aBy | c |
+    pub fn extend_rhs(&mut self, new_rhs: &'p str) {
+        self.rhs.push(new_rhs);
+    }
+
+    pub fn is_left_recusrive(&self) -> bool {
+        self.rhs.iter().find(|r| r.starts_with(self.lhs)).is_some()
+    }
+}
+
+
 /// Grammar = (T,N,P,S) where:
 /// T: set of terminal symbols
 /// N: set of non-terminal symbols
 /// P: production rules
 /// S: start symbol
-pub struct Grammar<'a> {
-    pub terms: HashSet<&'a str>,
-    pub non_terms: HashSet<&'a str>,
-    pub prods: HashMap<&'a str, Vec<&'a str>>, // e.g. S -> aB
-    pub start_symb: &'a str,
+pub struct Grammar<'g> {
+    pub terms: HashSet<&'g str>,
+    pub non_terms: HashSet<&'g str>,
+    pub prods: HashMap<&'g str, Production<'g>>, // e.g. S -> aB
+    pub start_symb: &'g str,
 }
+
 
 impl<'a> Grammar<'a> {
     // construct a new grammar with the given infomation.
@@ -28,7 +58,7 @@ impl<'a> Grammar<'a> {
         start_symb: &'a str,
         rules: Vec<&'a str>
     ) -> Self {
-        let mut prods = HashMap::<&str, Vec<&str>>::new();
+        let mut prods = HashMap::<&str, Production>::new();
         for s in rules {
             let p: Vec<&str> = s.split_ascii_whitespace()
                 .filter(|e| !e.contains("->"))
@@ -37,13 +67,13 @@ impl<'a> Grammar<'a> {
             // FIXME: handle invalid productions rules such as a single non-terminal: "A"
             if p.len() <= 1 {
                 prods.entry(p[0])
-                    .and_modify(|rhs| rhs.push(""))
-                    .or_insert(vec![""]);
+                    .and_modify(|r| r.rhs.push(""))
+                    .or_insert(Production::new(p[0], vec![""]));
             } else {
                 let mut rest: Vec<&str> = p[1..].to_vec();
                 prods.entry(p[0])
-                    .and_modify(|rhs| rhs.append(&mut rest))
-                    .or_insert(p[1..].to_vec());
+                    .and_modify(|r| r.rhs.append(&mut rest))
+                    .or_insert(Production::new(p[0], p[1..].to_vec()));
             }
         }
         Self {
@@ -67,10 +97,8 @@ impl<'a> Grammar<'a> {
     }
 
     pub fn is_left_recusrive(&self) -> bool {
-        self.prods.iter().find(|(k,v)| v.contains(k)).is_some()
+        self.prods.values().find(|p| p.is_left_recusrive()).is_some()
     }
-
-
 }
 
 
@@ -93,7 +121,8 @@ mod tests {
 
         assert!(g.is_cfg());
         assert!(g.prods.get("A").is_some());
-        assert!(g.prods.get("A").unwrap().len() == 2);
-        assert_eq!(g.prods.get("A"), Some(&["", "bbA"].to_vec()));
+        // assert!(g.prods.get("A").unwrap().len() == 2);
+        assert_eq!(g.prods.get("A").unwrap().lhs, "A");
+        assert_eq!(g.prods.get("A").unwrap().rhs, vec!["", "bbA"]);
     }
 }
