@@ -3,15 +3,16 @@ use std::collections::{HashMap, HashSet};
 
 
 // TODO:
-// []. compute FIRST set for each non terminal
-// []. compute FOLLOW set for each non terminal
-// []. detect common prefixes
-// []. intro custom errors to work with IO
-// []. finish checking LL1 grammar
-// []. finish checking LR0 grammar
-// []. finish checking LR1 grammar
-// []. finish checking SLR1 grammar
-// []. implement custom display for Production
+// - [] compute FIRST set for each non terminal
+// - [] compute FOLLOW set for each non terminal
+// - [] detect common prefixes
+// - [] intro custom errors to work with IO
+// - [] finish checking LL1 grammar
+// - [] finish checking LR0 grammar
+// - [] finish checking LR1 grammar
+// - [] finish checking SLR1 grammar
+// - [] implement custom display for Production
+// - [] modularize the project when appropriate
 
 /// Construct represneting a production rule: LHS -> RHS, where
 /// LHS should be a non-terminal (usually a sigle uppercase symbol).
@@ -30,6 +31,21 @@ impl<'p> Production<'p> {
     pub fn is_left_recusrive(&self) -> bool {
         self.rhs.iter().find(|r| r.starts_with(self.lhs)).is_some()
     }
+
+    pub fn nullable(&self) -> bool {
+        self.rhs.contains(&"")
+    }
+
+    pub fn get_symbols(&self, i: usize) -> Vec<&'p str> {
+        if let Some(rhs) = self.rhs.get(i) {
+            let symbs: Vec<&str> = rhs.split("").filter(|s| !s.is_empty()).collect();
+            symbs
+        } else {
+            // TODO: use Result once custom error is done
+            Vec::<&str>::new()
+        }
+    }
+
 }
 
 
@@ -86,6 +102,42 @@ impl<'a> Grammar<'a> {
         }
     }
 
+    // Compute FIRST set for a given non_terminal
+    pub fn first(&self, nt: &'a str) -> HashSet<&'a str> {
+        let mut first_set = HashSet::<&str>::new();
+        if let Some(prod) = self.prods.get(nt) {
+            for (i, &rhs) in prod.rhs.iter().enumerate() {
+                if rhs.is_empty() {
+                    first_set.insert("");
+                }
+                else if rhs.len() == 1 && self.is_termianl(rhs) {
+                    first_set.insert(rhs);
+                }
+                else {
+                    let symbs = prod.get_symbols(i);
+                    for s in symbs {
+                        if self.is_termianl(s) {
+                            first_set.insert(s);
+                            break;
+                        }
+                        else if self.is_non_terminal(s) && self.nullable(s) {
+                            let n = self.first(s);
+                            first_set = first_set.union(&n).copied().collect();
+                            continue; // FIRST(s) U FIRST(s') where s' is after s
+                        }
+                        else {  // non-terminal that is not nullable
+                            let n = self.first(s);
+                            first_set = first_set.union(&n).copied().collect();
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        // TODO: when custom errors are introduced, use Result
+        first_set
+    }
+
     pub fn is_cfg(&self) -> bool {
         self.prods.keys().find(|k| k.len() > 1).is_none()
     }
@@ -98,16 +150,19 @@ impl<'a> Grammar<'a> {
         self.non_terms.contains(nt)
     }
 
+    pub fn nullable(&self, nt: &str) -> bool {
+        self.prods.get(nt).map(|p| p.nullable()).is_some_and(|r| r)
+    }
+
     pub fn is_left_recusrive(&self) -> bool {
         self.prods.values().find(|p| p.is_left_recusrive()).is_some()
     }
 
-    pub fn is_LL1(&self) -> bool {
-        if self.is_left_recusrive() {
-            return false;
-        }
+
+
+    pub fn is_ll1(&self) -> bool {
         // TODO: check for common prefixes
-        true
+        !self.is_left_recusrive() && true
     }
 }
 
@@ -133,5 +188,22 @@ mod tests {
         assert!(g.prods.get("A").is_some());
         assert_eq!(g.prods.get("A").unwrap().lhs, "A");
         assert_eq!(g.prods.get("A").unwrap().rhs, vec!["", "bbA"]);
+    }
+
+    #[test]
+    fn test_first_set() {
+        let s = "S";
+        let t = HashSet::from(["b", "c", ""]);
+        let nt = HashSet::from(["S", "A", "B"]);
+        let rules = vec![
+            "S -> A",
+            "A -> ",
+            "A -> Bc",
+            "B -> ",
+            "B -> bb"
+        ];
+        let g = Grammar::new_with_src(t, nt, s, rules);
+
+        assert_eq!(g.first("A"), HashSet::from(["", "c", "b"]));
     }
 }
