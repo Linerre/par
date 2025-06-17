@@ -110,7 +110,7 @@ impl<'a> Grammar<'a> {
                 if rhs.is_empty() {
                     first_set.insert("");
                 }
-                else if rhs.len() == 1 && self.is_termianl(rhs) {
+                else if self.is_termianl(rhs) {
                     first_set.insert(rhs);
                 }
                 else {
@@ -123,9 +123,10 @@ impl<'a> Grammar<'a> {
                         else if self.is_non_terminal(s) && self.nullable(s) {
                             let n = self.first(s);
                             first_set = first_set.union(&n).copied().collect();
-                            continue; // FIRST(s) U FIRST(s') where s' is after s
+                            // FIRST(s) U FIRST(s') where s' is immediately after s
+                            continue;
                         }
-                        else {  // non-terminal that is not nullable
+                        else {  // non-nullable non-terminal
                             let n = self.first(s);
                             first_set = first_set.union(&n).copied().collect();
                             break;
@@ -138,8 +139,14 @@ impl<'a> Grammar<'a> {
         first_set
     }
 
+    // Compute FOLLOW set for a given non-terminal
+    // pub fn follow(&self, nt: &'a str) -> HashSet<&'a str> {
+    //     let mut follow_set = if HashSet::<&str>::new();
+    //
+    // }
+
     pub fn is_cfg(&self) -> bool {
-        self.prods.keys().find(|k| k.len() > 1).is_none()
+        self.prods.keys().find(|&k| self.terms.contains(k)).is_none()
     }
 
     pub fn is_termianl(&self, t: &str) -> bool {
@@ -157,8 +164,6 @@ impl<'a> Grammar<'a> {
     pub fn is_left_recusrive(&self) -> bool {
         self.prods.values().find(|p| p.is_left_recusrive()).is_some()
     }
-
-
 
     pub fn is_ll1(&self) -> bool {
         // TODO: check for common prefixes
