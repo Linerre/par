@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 // - [x] check if a non-terminal can be nullable
 // - [x] compute FIRST set for each non terminal
 // - [x] compute FOLLOW set for each non terminal
-// - [] check if a non-terminal can be nullable
+// - [x] check if a non-terminal can be nullable
 // - [] detect common prefixes
 // - [] intro custom errors to work with IO
 // - [] finish checking LL1 grammar
@@ -40,10 +40,6 @@ impl<'p> Production<'p> {
         self.rhs.iter().find(|r| r.starts_with(self.lhs)).is_some()
     }
 
-    pub fn nullable(&self) -> bool {
-        self.rhs.contains(&"")
-    }
-
     pub fn rhs_with_nt(&self, nt: &'p str) -> Vec<&'p str> {
         self.rhs
             .iter()
@@ -61,6 +57,15 @@ impl<'p> Production<'p> {
             Vec::<&str>::new()
         }
     }
+
+    // This fn only checks if a production can be directly nullable.
+    // It does not check if it is indirectly nullable. For example:
+    // 1. A -> (A can directly derive the empty string)
+    // 2. A -> XYZ where XYZ are all non-terminals that can derive the empty string
+    // Case 1 is directly nullable while case 2 is nullable indirectly.
+    pub fn nullable(&self) -> bool {
+        self.rhs.iter().any(|&r| r.is_empty())
+    }
 }
 
 /// Grammar = (T,N,P,S) where:
@@ -69,10 +74,11 @@ impl<'p> Production<'p> {
 /// P: production rules
 /// S: start symbol
 pub struct Grammar<'g> {
+    pub start_symb: &'g str,
     pub terms: HashSet<&'g str>,
     pub non_terms: HashSet<&'g str>,
+    pub nullables: HashSet<&'g str>, // only contain direct nullables
     pub prods: HashMap<&'g str, Production<'g>>, // e.g. S -> aB
-    pub start_symb: &'g str,
 }
 
 impl<'a> Grammar<'a> {
@@ -90,18 +96,19 @@ impl<'a> Grammar<'a> {
         rules: Vec<&'a str>,
     ) -> Self {
         let mut prods = HashMap::<&str, Production>::new();
+        let mut nullables = HashSet::<&str>::new();
         for s in rules {
             let p: Vec<&str> = s
                 .split_ascii_whitespace()
                 .filter(|e| !e.contains("->"))
                 .collect();
-
             // FIXME: handle invalid productions rules such as a single non-terminal: "A" (when p.len() == 0)
             if p.len() <= 1 {
                 prods
                     .entry(p[0])
                     .and_modify(|r| r.rhs.push(""))
                     .or_insert(Production::new(p[0], vec![""]));
+                nullables.insert(p[0]);
             } else {
                 let mut rest: Vec<&str> = p[1..].to_vec();
                 prods
@@ -111,10 +118,11 @@ impl<'a> Grammar<'a> {
             }
         }
         Self {
+            start_symb,
             terms,
             non_terms,
+            nullables,
             prods,
-            start_symb,
         }
     }
 
@@ -196,7 +204,9 @@ impl<'a> Grammar<'a> {
                             }
                         }
                     }
-                    None => { println!("{nt} not found on RHS"); }
+                    None => {
+                        println!("{nt} not found on RHS");
+                    }
                 }
             }
         }
@@ -218,8 +228,42 @@ impl<'a> Grammar<'a> {
         self.non_terms.contains(nt)
     }
 
+    // A non-terminal can be nullable if it meets any of the below:
+    // 1. it can derive the empty string: X ->
+    // 2. its RHS can derive the empty string: X -> YZ where YZ all nullable
     pub fn nullable(&self, nt: &str) -> bool {
-        self.prods.get(nt).map(|p| p.nullable()).is_some_and(|r| r)
+        match self.prods.get(nt) {
+            Some(p) => {
+                let dnull = self.nullables.contains(nt);
+                println!("NT {nt} is directly nullable: {dnull}");
+                let mut indull = false;
+                if !dnull {
+                    let all_nts: Vec<&str> = p
+                        .rhs
+                        .iter()
+                        .filter(|&r| {
+                            r.chars().all(|c| {
+                                let mut buf = [0; 4];
+                                let symb_str = c.encode_utf8(&mut buf);
+                                self.is_non_terminal(symb_str)
+                            })
+                        })
+                        .copied()
+                        .collect();
+                    if !all_nts.is_empty() {
+                        indull = indull
+                            || all_nts.iter().all(|&r| {
+                                let symbs: Vec<&str> = symbols!(r);
+                                symbs.iter().all(|&s| self.nullables.contains(s))
+                            })
+                    }
+                }
+                dnull || indull
+            }
+            None => {
+                todo!();
+            }
+        }
     }
 
     pub fn is_left_recusrive(&self) -> bool {
@@ -275,5 +319,20 @@ mod tests {
         // println!("{:?}", g.prods);
         assert_eq!(g.follow("A"), HashSet::from(["$"]));
         assert_eq!(g.follow("B"), HashSet::from(["c"]));
+        assert_eq!(g.nullables, HashSet::from(["A", "B"]));
+    }
+
+    #[test]
+    fn test_nullable() {
+        let s = "S";
+        let t = HashSet::from(["b", "c", "d", ""]);
+        let nt = HashSet::from(["S", "A", "B", "C", "D"]);
+        let rules = vec![
+            "S -> A", "A -> ", "A -> Bc", "B -> CD", "B -> bb", "C -> ", "C -> c", "D -> ",
+            "D -> d",
+        ];
+        let g = Grammar::new_with_src(t, nt, s, rules);
+        assert_eq!(g.nullables, HashSet::from(["A", "C", "D"]));
+        assert!(g.nullable("B"));
     }
 }
