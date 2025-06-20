@@ -1,5 +1,8 @@
 use std::collections::{HashMap, HashSet};
 
+mod errors;
+use errors::*;
+
 // TODO:
 // - [x] check if a non-terminal can be nullable
 // - [x] compute FIRST set for each non terminal
@@ -73,12 +76,13 @@ impl<'p> Production<'p> {
 /// N: set of non-terminal symbols
 /// P: production rules
 /// S: start symbol
+/// `nullables` contains only direct nullable non-terminals
 pub struct Grammar<'g> {
     pub start_symb: &'g str,
     pub terms: HashSet<&'g str>,
     pub non_terms: HashSet<&'g str>,
-    pub nullables: HashSet<&'g str>, // only contain direct nullables
-    pub prods: HashMap<&'g str, Production<'g>>, // e.g. S -> aB
+    pub nullables: HashSet<&'g str>,
+    pub prods: HashMap<&'g str, Production<'g>>,
 }
 
 impl<'a> Grammar<'a> {
@@ -102,7 +106,8 @@ impl<'a> Grammar<'a> {
                 .split_ascii_whitespace()
                 .filter(|e| !e.contains("->"))
                 .collect();
-            // FIXME: handle invalid productions rules such as a single non-terminal: "A" (when p.len() == 0)
+            // FIXME: handle invalid production rule (when p.len() == 0)
+            // use GrammarError::RHSMissing
             if p.len() <= 1 {
                 prods
                     .entry(p[0])
