@@ -3,7 +3,8 @@ use std::fmt;
 
 #[derive(Debug)]
 pub enum GrammarError {
-    RHSMissing,
+    SymbolNotFound(usize),
+    ProdNotFound(String),
 }
 
 impl Error for GrammarError {}
@@ -11,10 +12,12 @@ impl Error for GrammarError {}
 impl fmt::Display for GrammarError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            GrammarError::RHSMissing => {
-                write!(f, "error: Production RHS is missing")
+            GrammarError::SymbolNotFound(i) => {
+                write!(f, "error: symbol at {i} of RHS not found")
+            },
+            GrammarError::ProdNotFound(nt) => {
+                write!(f, "error: production rule not found for {nt}")
             }
-            // _ => todo!()
         }
     }
 }

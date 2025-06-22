@@ -3,6 +3,8 @@ use std::collections::{HashMap, HashSet};
 mod errors;
 use errors::*;
 
+type Result<T> = std::result::Result<T, GrammarError>;
+
 // TODO:
 // - [x] check if a non-terminal can be nullable
 // - [x] compute FIRST set for each non terminal
@@ -51,14 +53,13 @@ impl<'p> Production<'p> {
             .collect()
     }
 
-    pub fn get_symbols(&self, i: usize) -> Vec<&'p str> {
-        if let Some(&rhs) = self.rhs.get(i) {
-            let symbs: Vec<&str> = symbols!(rhs);
-            symbs
-        } else {
-            // TODO: use Result once custom error is done
-            Vec::<&str>::new()
-        }
+    // Get the symbols in ith expansion of this production
+    pub fn get_symbols(&self, i: usize) -> Result<Vec<&'p str>> {
+        let Some(&rhs) = self.rhs.get(i) else {
+            return Err(GrammarError::SymbolNotFound(i));
+        };
+        let symbs: Vec<&str> = symbols!(rhs);
+        Ok(symbs)
     }
 
     // This fn only checks if a production can be directly nullable.
@@ -101,14 +102,18 @@ impl<'a> Grammar<'a> {
     ) -> Self {
         let mut prods = HashMap::<&str, Production>::new();
         let mut nullables = HashSet::<&str>::new();
-        for s in rules {
+        for s_raw in rules {
+            let s = s_raw.trim();
+            // abort on any invalid production rule
+            assert!(s.len() > 1, "error: invalid production: {s}");
+
+            // TODO: use a varibale for derivation symbol to support
+            // `->, `::=` and `:=`
             let p: Vec<&str> = s
                 .split_ascii_whitespace()
                 .filter(|e| !e.contains("->"))
                 .collect();
-            // FIXME: handle invalid production rule (when p.len() == 0)
-            // use GrammarError::RHSMissing
-            if p.len() <= 1 {
+            if p.len() == 1 {
                 prods
                     .entry(p[0])
                     .and_modify(|r| r.rhs.push(""))
@@ -137,7 +142,7 @@ impl<'a> Grammar<'a> {
     // For X -> Y1Y2...Yn
     // FIRST(X) = FIRST(Y1) if Y1 cannot derive the empty string
     // FIRST(X) = FIRST(Y1) U FIRST(Y2) U ... FIRST(Yn) if Y1 can
-    pub fn first(&self, nt: &'a str) -> HashSet<&'a str> {
+    pub fn first(&self, nt: &'a str) -> Result<HashSet<&'a str>> {
         let mut first_set = HashSet::<&str>::new();
         if let Some(prod) = self.prods.get(nt) {
             for (i, &rhs) in prod.rhs.iter().enumerate() {
@@ -146,19 +151,19 @@ impl<'a> Grammar<'a> {
                 } else if self.is_termianl(rhs) {
                     first_set.insert(rhs);
                 } else {
-                    let symbs = prod.get_symbols(i);
+                    let symbs = prod.get_symbols(i)?;
                     for s in symbs {
                         if self.is_termianl(s) {
                             first_set.insert(s);
                             break;
-                        } else if self.is_non_terminal(s) && self.nullable(s) {
-                            let n = self.first(s);
+                        } else if self.is_non_terminal(s) && self.nullable(s)? {
+                            let n = self.first(s)?;
                             first_set = first_set.union(&n).copied().collect();
                             // FIRST(s) U FIRST(s') where s' is immediately after s
                             continue;
                         } else {
                             // non-nullable non-terminal
-                            let n = self.first(s);
+                            let n = self.first(s)?;
                             first_set = first_set.union(&n).copied().collect();
                             break;
                         }
@@ -166,15 +171,15 @@ impl<'a> Grammar<'a> {
                 }
             }
         }
-        // TODO: when custom errors are introduced, use Result
-        first_set
+        Ok(first_set)
     }
 
     // Compute FOLLOW set for a given non-terminal:
     // A -> XBZ where B is non-terminal and a, c may be terminals or non-terminals
     // FOLLOW(B) = FIRST(Z) if Z cannot derive the empty string or
     // FOLLOW(B) = FIRST(Z) U FOLLOW(A) if Z can derive the empty string
-    pub fn follow(&self, nt: &'a str) -> HashSet<&'a str> {
+    pub fn follow(&self, nt: &'a str) -> Result<HashSet<&'a str>> {
+        assert!(self.is_non_terminal(nt), "error: unknown non-terminal: {nt}");
         let mut follow_set = if nt.eq(self.start_symb) {
             HashSet::from(["$"])
         } else {
@@ -190,32 +195,27 @@ impl<'a> Grammar<'a> {
             let rs: Vec<&str> = p.rhs_with_nt(nt);
             for r in rs {
                 let symbs: Vec<&str> = symbols!(r);
-                match symbs.iter().position(|s| s.eq(&nt)) {
-                    Some(pos) => {
-                        if pos < symbs.len() - 1 {
-                            let fsymb = symbs[pos + 1];
-                            if self.is_termianl(fsymb) {
-                                follow_set.insert(fsymb);
-                            } else if self.is_non_terminal(fsymb) {
-                                let f = self.first(fsymb);
-                                follow_set = follow_set.union(&f).copied().collect();
-                            }
-                        } else if pos == symbs.len() - 1 {
-                            if p.lhs.eq(nt) {
-                                break;
-                            } else {
-                                let f = self.follow(p.lhs);
-                                follow_set = follow_set.union(&f).copied().collect();
-                            }
+                if let Some(pos) = symbs.iter().position(|s| s.eq(&nt)) {
+                    if pos < symbs.len() - 1 {
+                        let fsymb = symbs[pos + 1];
+                        if self.is_termianl(fsymb) {
+                            follow_set.insert(fsymb);
+                        } else if self.is_non_terminal(fsymb) {
+                            let f = self.first(fsymb)?;
+                            follow_set = follow_set.union(&f).copied().collect();
                         }
-                    }
-                    None => {
-                        println!("{nt} not found on RHS");
+                    } else if pos == symbs.len() - 1 {
+                        if p.lhs.eq(nt) {
+                            break;
+                        } else {
+                            let f = self.follow(p.lhs)?;
+                            follow_set = follow_set.union(&f).copied().collect();
+                        }
                     }
                 }
             }
         }
-        follow_set
+        Ok(follow_set)
     }
 
     pub fn is_cfg(&self) -> bool {
@@ -236,7 +236,8 @@ impl<'a> Grammar<'a> {
     // A non-terminal can be nullable if it meets any of the below:
     // 1. it can derive the empty string: X ->
     // 2. its RHS can derive the empty string: X -> YZ where YZ all nullable
-    pub fn nullable(&self, nt: &str) -> bool {
+    pub fn nullable(&self, nt: &str) -> Result<bool> {
+        assert!(self.is_non_terminal(nt), "error: unknown non-terminal: {nt}");
         match self.prods.get(nt) {
             Some(p) => {
                 let dnull = self.nullables.contains(nt);
@@ -263,11 +264,9 @@ impl<'a> Grammar<'a> {
                             })
                     }
                 }
-                dnull || indull
+                Ok(dnull || indull)
             }
-            None => {
-                todo!();
-            }
+            None => { Err(GrammarError::ProdNotFound(nt.to_string())) }
         }
     }
 
@@ -303,18 +302,18 @@ mod tests {
     }
 
     #[test]
-    fn test_first_set() {
+    fn test_first_set() -> Result<()> {
         let s = "S";
         let t = HashSet::from(["b", "c", ""]);
         let nt = HashSet::from(["S", "A", "B"]);
         let rules = vec!["S -> A", "A -> ", "A -> Bc", "B -> ", "B -> bb"];
         let g = Grammar::new_with_src(t, nt, s, rules);
-
-        assert_eq!(g.first("A"), HashSet::from(["", "c", "b"]));
+        assert_eq!(g.first("A").unwrap(), HashSet::from(["", "c", "b"]));
+        Ok(())
     }
 
     #[test]
-    fn test_follow_set() {
+    fn test_follow_set() -> Result<()> {
         let s = "S";
         let t = HashSet::from(["b", "c", ""]);
         let nt = HashSet::from(["S", "A", "B"]);
@@ -322,13 +321,14 @@ mod tests {
         let g = Grammar::new_with_src(t, nt, s, rules);
 
         // println!("{:?}", g.prods);
-        assert_eq!(g.follow("A"), HashSet::from(["$"]));
-        assert_eq!(g.follow("B"), HashSet::from(["c"]));
+        assert_eq!(g.follow("A").unwrap(), HashSet::from(["$"]));
+        assert_eq!(g.follow("B").unwrap(), HashSet::from(["c"]));
         assert_eq!(g.nullables, HashSet::from(["A", "B"]));
+        Ok(())
     }
 
     #[test]
-    fn test_nullable() {
+    fn test_nullable() -> Result<()> {
         let s = "S";
         let t = HashSet::from(["b", "c", "d", ""]);
         let nt = HashSet::from(["S", "A", "B", "C", "D"]);
@@ -338,6 +338,7 @@ mod tests {
         ];
         let g = Grammar::new_with_src(t, nt, s, rules);
         assert_eq!(g.nullables, HashSet::from(["A", "C", "D"]));
-        assert!(g.nullable("B"));
+        assert!(g.nullable("B").unwrap());
+        Ok(())
     }
 }
