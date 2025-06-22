@@ -31,15 +31,6 @@ impl<'p> Production<'p> {
             .collect()
     }
 
-    // Get the symbols in ith expansion of this production
-    pub fn get_symbols(&self, i: usize) -> Result<Vec<&'p str>> {
-        let Some(&rhs) = self.rhs.get(i) else {
-            return Err(GrammarError::SymbolNotFound(i));
-        };
-        let symbs: Vec<&str> = symbols!(rhs);
-        Ok(symbs)
-    }
-
     // This fn only checks if a production can be directly nullable.
     // It does not check if it is indirectly nullable. For example:
     // 1. A -> (A can directly derive the empty string)
@@ -121,30 +112,32 @@ impl<'a> Grammar<'a> {
     // FIRST(X) = FIRST(Y1) if Y1 cannot derive the empty string
     // FIRST(X) = FIRST(Y1) U FIRST(Y2) U ... FIRST(Yn) if Y1 can
     pub fn first(&self, nt: &'a str) -> Result<HashSet<&'a str>> {
+        assert!(self.is_non_terminal(nt), "error: unknown non-terminal: {nt}");
         let mut first_set = HashSet::<&str>::new();
-        if let Some(prod) = self.prods.get(nt) {
-            for (i, &rhs) in prod.rhs.iter().enumerate() {
-                if rhs.is_empty() {
-                    first_set.insert("");
-                } else if self.is_termianl(rhs) {
-                    first_set.insert(rhs);
-                } else {
-                    let symbs = prod.get_symbols(i)?;
-                    for s in symbs {
-                        if self.is_termianl(s) {
-                            first_set.insert(s);
-                            break;
-                        } else if self.is_non_terminal(s) && self.nullable(s)? {
-                            let n = self.first(s)?;
-                            first_set = first_set.union(&n).copied().collect();
-                            // FIRST(s) U FIRST(s') where s' is immediately after s
-                            continue;
-                        } else {
-                            // non-nullable non-terminal
-                            let n = self.first(s)?;
-                            first_set = first_set.union(&n).copied().collect();
-                            break;
-                        }
+        let Some(prod) = self.prods.get(nt) else {
+            return Err(GrammarError::ProdNotFound(nt.to_string()));
+        };
+        for &rhs in prod.rhs.iter() {
+            if rhs.is_empty() {
+                first_set.insert("");
+            } else if self.is_termianl(rhs) {
+                first_set.insert(rhs);
+            } else {
+                let symbs: Vec<&str> = symbols!(rhs);
+                for s in symbs {
+                    if self.is_termianl(s) {
+                        first_set.insert(s);
+                        break;
+                    } else if self.is_non_terminal(s) && self.nullable(s)? {
+                        let n = self.first(s)?;
+                        first_set = first_set.union(&n).copied().collect();
+                        // FIRST(s) U FIRST(s') where s' is immediately after s
+                        continue;
+                    } else {
+                        // non-nullable non-terminal
+                        let n = self.first(s)?;
+                        first_set = first_set.union(&n).copied().collect();
+                        break;
                     }
                 }
             }
@@ -173,22 +166,23 @@ impl<'a> Grammar<'a> {
             let rs: Vec<&str> = p.rhs_with_nt(nt);
             for r in rs {
                 let symbs: Vec<&str> = symbols!(r);
-                if let Some(pos) = symbs.iter().position(|s| s.eq(&nt)) {
-                    if pos < symbs.len() - 1 {
-                        let fsymb = symbs[pos + 1];
-                        if self.is_termianl(fsymb) {
-                            follow_set.insert(fsymb);
-                        } else if self.is_non_terminal(fsymb) {
-                            let f = self.first(fsymb)?;
-                            follow_set = follow_set.union(&f).copied().collect();
-                        }
-                    } else if pos == symbs.len() - 1 {
-                        if p.lhs.eq(nt) {
-                            break;
-                        } else {
-                            let f = self.follow(p.lhs)?;
-                            follow_set = follow_set.union(&f).copied().collect();
-                        }
+                let Some(pos) = symbs.iter().position(|s| s.eq(&nt)) else {
+                    return Err(GrammarError::SymbolNotFound(nt.to_string()));
+                };
+                if pos < symbs.len() - 1 {
+                    let fsymb = symbs[pos + 1];
+                    if self.is_termianl(fsymb) {
+                        follow_set.insert(fsymb);
+                    } else if self.is_non_terminal(fsymb) {
+                        let f = self.first(fsymb)?;
+                        follow_set = follow_set.union(&f).copied().collect();
+                    }
+                } else if pos == symbs.len() - 1 {
+                    if p.lhs.eq(nt) {
+                        break;
+                    } else {
+                        let f = self.follow(p.lhs)?;
+                        follow_set = follow_set.union(&f).copied().collect();
                     }
                 }
             }
