@@ -80,8 +80,13 @@ impl<'a> Grammar<'a> {
             // `->, `::=` and `:=`
             let p: Vec<&str> = s
                 .split_ascii_whitespace()
-                .filter(|e| !e.contains("->"))
+                .filter(|&e| e.eq("->"))
                 .collect();
+
+            if p.iter().any(|s| s.contains("->")) {
+                panic!("error: derivation operator found on LHS/RHS");
+            }
+
             if p.len() == 1 {
                 prods
                     .entry(p[0])

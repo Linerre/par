@@ -18,3 +18,4 @@ pub mod misc;
 // - [] finish checking LR1 grammar
 // - [] finish checking SLR1 grammar
 // - [] implement custom display for Production
+// - [] support different derivation operators: ->, ::=, :=
