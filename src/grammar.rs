@@ -76,11 +76,9 @@ impl<'a> Grammar<'a> {
             // abort on any invalid production rule
             assert!(s.len() > 1, "error: invalid production: {s}");
 
-            // TODO: use a varibale for derivation symbol to support
-            // `->, `::=` and `:=`
             let p: Vec<&str> = s
                 .split_ascii_whitespace()
-                .filter(|&e| e.eq("->"))
+                .filter(|&e| !e.eq("->"))
                 .collect();
 
             if p.iter().any(|s| s.contains("->")) {

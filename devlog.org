@@ -1,0 +1,57 @@
+** Alternatives
+In =grammar.rs=, the current =new_with_src= handles ="A -> BC"= in the following approach
+#+BEGIN_SRC rust
+let p: Vec<&str> = s
+    .split_ascii_whitespace()
+    .filter(|&e| !e.eq("->"))
+    .collect();
+
+if p.iter().any(|s| s.contains("->")) {
+    panic!("error: derivation operator found on LHS/RHS");
+}
+
+if p.len() == 1 {
+    prods
+        .entry(p[0])
+        .and_modify(|r| r.rhs.push(""))
+        .or_insert(Production::new(p[0], vec![""]));
+    nullables.insert(p[0]);
+} else {
+    let mut rest: Vec<&str> = p[1..].to_vec();
+    prods
+        .entry(p[0])
+        .and_modify(|r| r.rhs.append(&mut rest))
+        .or_insert(Production::new(p[0], p[1..].to_vec()));
+}
+#+END_SRC
+1. split each rule `"A -> BC"` into a vector `["A", "->", "BC"]`
+2. loop through the vector and handle LHS and RHS respectively, ignore `"->"`
+
+An alternative which avoids one allocation is as follows:
+#+BEGIN_SRC rust
+let nt: &str = &s[0..1];
+let mut rs = s.split_ascii_whitespace();
+let mut cnt = 0;
+while let Some(p) = rs.next() {
+    if  cnt == 0 || p.eq("->") { // ignore LHS and derivation op
+        cnt += 1;
+    } else {        // handle RHS
+        prods
+            .entry(nt)
+            .and_modify(|r| r.rhs.push(p))
+            .or_insert(Production::new(nt, vec![p]));
+        cnt += 1;
+    }
+}
+if cnt == 2 {       // handle nullable nts
+    prods
+        .entry(nt)
+        .and_modify(|r| r.rhs.push(""))
+        .or_insert(Production::new(nt, vec![""]));
+    nullables.insert(nt);
+}
+#+END_SRC
+But the performance gain is likely very small for a few reasons:
+1. The temporary vector allocation in the old code is small (typically just 3-5 elements) and short-lived
+2. Your current solution still has multiple string operations (split, equality checks)
+3. Parsing grammar rules isn't typically a performance bottleneck unless you're doing it very frequently
