@@ -301,6 +301,17 @@ impl<'a> Grammar<'a> {
         Ok(false)
     }
 
+    pub fn ambigous_with_common_prefix(&self) -> Result<bool> {
+        for prod in self.prods.values() {
+            match self.has_common_prefix(prod) {
+                Ok(true) => return Ok(true),
+                Ok(false) => continue,
+                Err(e) => return Err(e)
+            }
+        }
+        Ok(false)
+    }
+
     pub fn is_ll1(&self) -> bool {
         // TODO: check for common prefixes
         !self.is_left_recusrive() && true
@@ -374,8 +385,7 @@ mod tests {
         let rules = vec![
             "S -> A", "A -> cB", "A -> cD", "B -> CD", "B -> bb", "C -> c", "D -> d"];
         let g = Grammar::new_with_src(t, nt, s, rules);
-        let prod = g.prods.get("A").unwrap();
-        assert!(g.has_common_prefix(&prod)?);
+        assert!(g.ambigous_with_common_prefix()?);
         Ok(())
     }
 }
