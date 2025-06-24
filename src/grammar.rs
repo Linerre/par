@@ -117,8 +117,7 @@ impl<'a> Grammar<'a> {
             self.first_of_nt(strs)
         } else {
             let mut fset = HashSet::<&str>::new();
-            // TODO: in the future, split by symbols instead of ""
-            for s in strs.split("").filter(|&s| !s.is_empty()) {
+            for s in symbols!(strs) {
                 if self.is_terminal(s) {
                     fset.insert(s);
                     break;
@@ -289,32 +288,35 @@ impl<'a> Grammar<'a> {
         if prod.rhs.len() == 1 {
             return Ok(false);
         } else if self.nullable(prod.lhs)? {
-            let mut first = self.follow(prod.lhs)?;
+            let mut fset = self.follow(prod.lhs)?;
             for &r in prod.rhs.iter().filter(|&r| !r.is_empty()) {
-                let mut fiter = r.split("").filter(|&s| !s.is_empty()).take(1);
+                let mut fiter = symbols!(r).take(1);
                 if let Some(s) = fiter.next() {
-                    if first.contains(s) {
+                    if fset.contains(s) {
                         return Ok(true);
                     } else if self.is_terminal(s) {
-                        first.insert(s);
+                        fset.insert(s);
                     } else {
-                        first = self.first(s)?;
+                        fset = self.first(s)?;
                     }
                 }
             }
         } else {
             let mut first = HashSet::<&str>::with_capacity(self.terms.len() + self.non_terms.len());
             for &r in prod.rhs.iter() {
-                let mut fiter = r.split("").filter(|&s| !s.is_empty()).take(1);
+                let mut fiter = symbols!(r).take(1);
                 if let Some(s) = fiter.next() {
                     if first.contains(s) {
                         return Ok(true);
                     } else if self.is_terminal(s) {
                         first.insert(s);
                     } else {
-                        println!("{s} is nullable so needs FOLLOW(LHS)");
-                        println!("first({s}) is now {:?}", first);
-                        first = self.first(s)?;
+                        let nt_first = self.first(s)?;
+                        if first.is_disjoint(&nt_first) {
+                            first = first.union(&nt_first).copied().collect();
+                        } else {
+                            return Ok(true)
+                        }
                     }
                 }
             }
@@ -410,7 +412,7 @@ mod tests {
         Ok(())
     }
 
-        #[test]
+    #[test]
     fn test_has_common_prefix2() -> Result<()> {
         let s = "S";
         let t = HashSet::from(["b", "c", "d", ""]);
@@ -422,4 +424,15 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn test_has_common_prefix3() -> Result<()> {
+        let s = "S";
+        let t = HashSet::from(["b", "c", "d", ""]);
+        let nt = HashSet::from(["S", "A", "B", "C", "D"]);
+        let rules = vec![
+            "S -> A", "A -> ", "A -> BD", "B -> ", "B -> bb", "C -> c", "D -> d"];
+        let g = Grammar::new_with_src(t, nt, s, rules);
+        assert!(!g.ambigous_with_common_prefix()?);
+        Ok(())
+    }
 }

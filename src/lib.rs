@@ -8,7 +8,7 @@ pub mod misc;
 // - [x] compute FOLLOW set for each non terminal
 // - [x] check if a non-terminal can be nullable
 // - [x] modularize the project when appropriate
-// - [] detect common prefixes
+// - [x] detect common prefixes
 // - [] add error handling and decide if to make them public
 //   - [x] basic custom errors to cover common possible erroneous scenarios
 //   - [] intro custom errors to work with IO
