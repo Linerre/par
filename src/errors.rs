@@ -14,9 +14,12 @@ impl fmt::Display for GrammarError {
         match self {
             GrammarError::SymbolNotFound(nt) => {
                 write!(f, "error: non-terminal {nt} found on RHS")
-            },
+            }
             GrammarError::ProdNotFound(nt) => {
-                write!(f, "error: production rule not found for nont-terminal: {nt}")
+                write!(
+                    f,
+                    "error: production rule not found for nont-terminal: {nt}"
+                )
             }
         }
     }

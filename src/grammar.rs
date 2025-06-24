@@ -1,6 +1,6 @@
-use std::collections::{HashMap, HashSet};
 use crate::errors::*;
 use crate::symbols;
+use std::collections::{HashMap, HashSet};
 
 type Result<T> = std::result::Result<T, GrammarError>;
 
@@ -115,7 +115,10 @@ impl<'a> Grammar<'a> {
     // FIRST(X) = FIRST(Y1) if Y1 cannot derive the empty string
     // FIRST(X) = FIRST(Y1) U FIRST(Y2) U ... FIRST(Yn) if Y1 can
     pub fn first(&self, nt: &'a str) -> Result<HashSet<&'a str>> {
-        assert!(self.is_non_terminal(nt), "error: unknown non-terminal: {nt}");
+        assert!(
+            self.is_non_terminal(nt),
+            "error: unknown non-terminal: {nt}"
+        );
         let mut first_set = HashSet::<&str>::new();
         let Some(prod) = self.prods.get(nt) else {
             return Err(GrammarError::ProdNotFound(nt.to_string()));
@@ -123,12 +126,12 @@ impl<'a> Grammar<'a> {
         for &rhs in prod.rhs.iter() {
             if rhs.is_empty() {
                 first_set.insert("");
-            } else if self.is_termianl(rhs) {
+            } else if self.is_terminal(rhs) {
                 first_set.insert(rhs);
             } else {
                 let symbs: Vec<&str> = symbols!(rhs);
                 for s in symbs {
-                    if self.is_termianl(s) {
+                    if self.is_terminal(s) {
                         first_set.insert(s);
                         break;
                     } else if self.is_non_terminal(s) && self.nullable(s)? {
@@ -153,7 +156,10 @@ impl<'a> Grammar<'a> {
     // FOLLOW(B) = FIRST(Z) if Z cannot derive the empty string or
     // FOLLOW(B) = FIRST(Z) U FOLLOW(A) if Z can derive the empty string
     pub fn follow(&self, nt: &'a str) -> Result<HashSet<&'a str>> {
-        assert!(self.is_non_terminal(nt), "error: unknown non-terminal: {nt}");
+        assert!(
+            self.is_non_terminal(nt),
+            "error: unknown non-terminal: {nt}"
+        );
         let mut follow_set = if nt.eq(self.start_symb) {
             HashSet::from(["$"])
         } else {
@@ -174,7 +180,7 @@ impl<'a> Grammar<'a> {
                 };
                 if pos < symbs.len() - 1 {
                     let fsymb = symbs[pos + 1];
-                    if self.is_termianl(fsymb) {
+                    if self.is_terminal(fsymb) {
                         follow_set.insert(fsymb);
                     } else if self.is_non_terminal(fsymb) {
                         let f = self.first(fsymb)?;
@@ -200,7 +206,7 @@ impl<'a> Grammar<'a> {
             .is_none()
     }
 
-    pub fn is_termianl(&self, t: &str) -> bool {
+    pub fn is_terminal(&self, t: &str) -> bool {
         self.terms.contains(t)
     }
 
@@ -212,7 +218,10 @@ impl<'a> Grammar<'a> {
     // 1. it can derive the empty string: X ->
     // 2. its RHS can derive the empty string: X -> YZ where YZ all nullable
     pub fn nullable(&self, nt: &str) -> Result<bool> {
-        assert!(self.is_non_terminal(nt), "error: unknown non-terminal: {nt}");
+        assert!(
+            self.is_non_terminal(nt),
+            "error: unknown non-terminal: {nt}"
+        );
         match self.prods.get(nt) {
             Some(p) => {
                 let dnull = self.nullables.contains(nt);
@@ -241,7 +250,7 @@ impl<'a> Grammar<'a> {
                 }
                 Ok(dnull || indull)
             }
-            None => { Err(GrammarError::ProdNotFound(nt.to_string())) }
+            None => Err(GrammarError::ProdNotFound(nt.to_string())),
         }
     }
 
@@ -250,6 +259,46 @@ impl<'a> Grammar<'a> {
             .values()
             .find(|p| p.is_left_recusrive())
             .is_some()
+    }
+
+    // For a non-terminal with multiple productions:
+    // A -> a | b
+    // A is said to have NO common prefix if either of the below two conditions met:
+    // 1. if both a and b are not nullable and FIRST(a) U FIRST(b) = empty set
+    // 2. if either nullable(a) but !nullable(b) and FOLLOW(A) U FIRST(b) = empty set
+    pub fn has_common_prefix(&self, prod: &Production) -> Result<bool> {
+        if prod.rhs.len() == 1 {
+            return Ok(false);
+        } else if prod.rhs.contains(&"") {
+            let mut first = self.follow(prod.lhs)?;
+            for &r in prod.rhs.iter().filter(|&r| !r.is_empty()) {
+                let mut fiter = r.split("").filter(|&s| !s.is_empty()).take(1);
+                if let Some(s) = fiter.next() {
+                    if first.contains(s) {
+                        return Ok(true);
+                    } else if self.is_terminal(s) {
+                        first.insert(s);
+                    } else {
+                        first = self.first(s)?;
+                    }
+                }
+            }
+        } else {
+            let mut first = HashSet::<&str>::with_capacity(self.terms.len() + self.non_terms.len());
+            for &r in prod.rhs.iter() {
+                let mut fiter = r.split("").filter(|&s| !s.is_empty()).take(1);
+                if let Some(s) = fiter.next() {
+                    if first.contains(s) {
+                        return Ok(true);
+                    } else if self.is_terminal(s) {
+                        first.insert(s);
+                    } else {
+                        first = self.first(s)?;
+                    }
+                }
+            }
+        }
+        Ok(false)
     }
 
     pub fn is_ll1(&self) -> bool {
@@ -314,6 +363,19 @@ mod tests {
         let g = Grammar::new_with_src(t, nt, s, rules);
         assert_eq!(g.nullables, HashSet::from(["A", "C", "D"]));
         assert!(g.nullable("B").unwrap());
+        Ok(())
+    }
+
+    #[test]
+    fn test_has_common_prefix() -> Result<()> {
+        let s = "S";
+        let t = HashSet::from(["b", "c", "d", ""]);
+        let nt = HashSet::from(["S", "A", "B", "C", "D"]);
+        let rules = vec![
+            "S -> A", "A -> cB", "A -> cD", "B -> CD", "B -> bb", "C -> c", "D -> d"];
+        let g = Grammar::new_with_src(t, nt, s, rules);
+        let prod = g.prods.get("A").unwrap();
+        assert!(g.has_common_prefix(&prod)?);
         Ok(())
     }
 }
