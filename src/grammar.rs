@@ -108,42 +108,61 @@ impl<'a> Grammar<'a> {
         }
     }
 
+    pub fn first(&self, strs: &'a str) -> Result<HashSet<&'a str>> {
+        if strs.is_empty() {
+            Ok(HashSet::<&str>::new())
+        } else if self.is_terminal(strs) {
+            Ok(HashSet::from([strs]))
+        } else if self.is_non_terminal(strs) {
+            self.first_of_nt(strs)
+        } else {
+            let mut fset = HashSet::<&str>::new();
+            // TODO: in the future, split by symbols instead of ""
+            for s in strs.split("").filter(|&s| !s.is_empty()) {
+                if self.is_terminal(s) {
+                    fset.insert(s);
+                    break;
+                }
+                if self.is_non_terminal(s) {
+                    let f = self.first(s)?;
+                    fset = fset.union(&f).copied().collect();
+                    continue;
+                }
+            }
+            Ok(fset)
+        }
+    }
     // Compute FIRST set for a given non-terminal
     // FIRST(empty) = {empty}
     // FIRST(terminal) = {terminal}
     // For X -> Y1Y2...Yn
     // FIRST(X) = FIRST(Y1) if Y1 cannot derive the empty string
-    // FIRST(X) = FIRST(Y1) U FIRST(Y2) U ... FIRST(Yn) if Y1 can
-    pub fn first(&self, nt: &'a str) -> Result<HashSet<&'a str>> {
-        assert!(
-            self.is_non_terminal(nt),
-            "error: unknown non-terminal: {nt}"
-        );
-        let mut first_set = HashSet::<&str>::new();
+    // FIRST(X) = FIRST(Y1) U FIRST(Y2) U ... FIRST(Yn) if Y1..Yn-1 can
+    fn first_of_nt(&self, nt: &'a str) -> Result<HashSet<&'a str>> {
         let Some(prod) = self.prods.get(nt) else {
             return Err(GrammarError::ProdNotFound(nt.to_string()));
         };
+        let mut first_set = HashSet::<&str>::new();
         for &rhs in prod.rhs.iter() {
             if rhs.is_empty() {
                 first_set.insert("");
             } else if self.is_terminal(rhs) {
                 first_set.insert(rhs);
             } else {
-                let symbs: Vec<&str> = symbols!(rhs);
-                for s in symbs {
+                for s in symbols!(rhs) {
                     if self.is_terminal(s) {
                         first_set.insert(s);
                         break;
-                    } else if self.is_non_terminal(s) && self.nullable(s)? {
-                        let n = self.first(s)?;
+                    }
+                    if self.is_non_terminal(s) {
+                        let n = self.first_of_nt(s)?;
                         first_set = first_set.union(&n).copied().collect();
-                        // FIRST(s) U FIRST(s') where s' is immediately after s
-                        continue;
-                    } else {
-                        // non-nullable non-terminal
-                        let n = self.first(s)?;
-                        first_set = first_set.union(&n).copied().collect();
-                        break;
+                        if self.nullable(s)? {
+                            // FIRST(s) U FIRST(s') where s' is immediately after s
+                            continue;
+                        } else {
+                            break;
+                        }
                     }
                 }
             }
@@ -155,6 +174,7 @@ impl<'a> Grammar<'a> {
     // A -> XBZ where B is non-terminal and a, c may be terminals or non-terminals
     // FOLLOW(B) = FIRST(Z) if Z cannot derive the empty string or
     // FOLLOW(B) = FIRST(Z) U FOLLOW(A) if Z can derive the empty string
+    // Note: FOLLOW sets apply to non-terminals only
     pub fn follow(&self, nt: &'a str) -> Result<HashSet<&'a str>> {
         assert!(
             self.is_non_terminal(nt),
@@ -174,7 +194,7 @@ impl<'a> Grammar<'a> {
         for p in ps {
             let rs: Vec<&str> = p.rhs_with_nt(nt);
             for r in rs {
-                let symbs: Vec<&str> = symbols!(r);
+                let symbs: Vec<&str>  = symbols!(r).collect();
                 let Some(pos) = symbs.iter().position(|s| s.eq(&nt)) else {
                     return Err(GrammarError::SymbolNotFound(nt.to_string()));
                 };
@@ -243,8 +263,7 @@ impl<'a> Grammar<'a> {
                     if !all_nts.is_empty() {
                         indull = indull
                             || all_nts.iter().all(|&r| {
-                                let symbs: Vec<&str> = symbols!(r);
-                                symbs.iter().all(|&s| self.nullables.contains(s))
+                                symbols!(r).all(|s| self.nullables.contains(s))
                             })
                     }
                 }
@@ -269,7 +288,7 @@ impl<'a> Grammar<'a> {
     pub fn has_common_prefix(&self, prod: &Production) -> Result<bool> {
         if prod.rhs.len() == 1 {
             return Ok(false);
-        } else if prod.rhs.contains(&"") {
+        } else if self.nullable(prod.lhs)? {
             let mut first = self.follow(prod.lhs)?;
             for &r in prod.rhs.iter().filter(|&r| !r.is_empty()) {
                 let mut fiter = r.split("").filter(|&s| !s.is_empty()).take(1);
@@ -293,6 +312,8 @@ impl<'a> Grammar<'a> {
                     } else if self.is_terminal(s) {
                         first.insert(s);
                     } else {
+                        println!("{s} is nullable so needs FOLLOW(LHS)");
+                        println!("first({s}) is now {:?}", first);
                         first = self.first(s)?;
                     }
                 }
@@ -378,7 +399,7 @@ mod tests {
     }
 
     #[test]
-    fn test_has_common_prefix() -> Result<()> {
+    fn test_has_common_prefix1() -> Result<()> {
         let s = "S";
         let t = HashSet::from(["b", "c", "d", ""]);
         let nt = HashSet::from(["S", "A", "B", "C", "D"]);
@@ -388,4 +409,17 @@ mod tests {
         assert!(g.ambigous_with_common_prefix()?);
         Ok(())
     }
+
+        #[test]
+    fn test_has_common_prefix2() -> Result<()> {
+        let s = "S";
+        let t = HashSet::from(["b", "c", "d", ""]);
+        let nt = HashSet::from(["S", "A", "B", "C", "D"]);
+        let rules = vec![
+            "S -> A", "A -> Bc", "A -> BD", "B -> ", "B -> bb", "C -> c", "D -> d"];
+        let g = Grammar::new_with_src(t, nt, s, rules);
+        assert!(g.ambigous_with_common_prefix()?);
+        Ok(())
+    }
+
 }

@@ -4,6 +4,7 @@
 #[macro_export]
 macro_rules! symbols {
     ($rhs:ident) => {
-        $rhs.split("").filter(|s| !s.is_empty()).collect()
+        // TODO: in the future, split by symbols instead of ""
+        $rhs.split("").filter(|s| !s.is_empty())
     };
 }
