@@ -1,3 +1,4 @@
+* Notes taken along the development
 ** Alternatives
 In =grammar.rs=, the current =new_with_src= handles ="A -> BC"= in the following approach
 #+BEGIN_SRC rust
@@ -24,7 +25,7 @@ if p.len() == 1 {
         .or_insert(Production::new(p[0], p[1..].to_vec()));
 }
 #+END_SRC
-1. split each rule `"A -> BC"` into a vector `["A", "->", "BC"]`
+1. split each rule ="A -> BC"= into a vector =["A", "->", "BC"]=
 2. loop through the vector and handle LHS and RHS respectively, ignore `"->"`
 
 An alternative which avoids one allocation is as follows:
@@ -51,7 +52,7 @@ if cnt == 2 {       // handle nullable nts
     nullables.insert(nt);
 }
 #+END_SRC
-But the performance gain is likely very small for a few reasons:
+According to Claude, the performance gain is likely very small for a few reasons:
 1. The temporary vector allocation in the old code is small (typically just 3-5 elements) and short-lived
-2. Your current solution still has multiple string operations (split, equality checks)
+2. The current solution still has multiple string operations (split, equality checks)
 3. Parsing grammar rules isn't typically a performance bottleneck unless you're doing it very frequently
