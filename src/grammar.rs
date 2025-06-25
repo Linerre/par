@@ -389,10 +389,10 @@ mod tests {
     #[test]
     fn test_is_cfg1() {
         let s = "S";
-        let op = "->";
+        let op = "::=";
         let t = HashSet::from(["b"]);
         let nt = HashSet::from(["S", "A"]);
-        let rules = vec!["S -> A", "A -> ", "A -> bbA"];
+        let rules = vec!["S ::= A", "A ::= ", "A ::= bbA"];
         let g = Grammar::new_with_src(op, s, t, nt, rules);
 
         assert!(g.is_cfg());
