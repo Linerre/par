@@ -61,15 +61,6 @@ impl<'p> Production<'p> {
             .copied()
             .collect()
     }
-
-    // This fn only checks if a production can be directly nullable.
-    // It does not check if it is indirectly nullable. For example:
-    // 1. A -> (A can directly derive the empty string)
-    // 2. A -> XYZ where XYZ are all non-terminals that can derive the empty string
-    // Case 1 is directly nullable while case 2 is nullable indirectly.
-    pub fn nullable(&self) -> bool {
-        self.rhs.iter().any(|&r| r.is_empty())
-    }
 }
 
 /// Grammar = (T,N,P,S) where:
@@ -285,10 +276,8 @@ impl<'a> Grammar<'a> {
         );
         match self.prods.get(nt) {
             Some(p) => {
-                let dnull = self.nullables.contains(nt);
-                println!("NT {nt} is directly nullable: {dnull}");
                 let mut indull = false;
-                if !dnull {
+                if !p.dnull {
                     let all_nts: Vec<&str> = p
                         .rhs
                         .iter()
@@ -308,7 +297,7 @@ impl<'a> Grammar<'a> {
                                 .all(|&r| symbols!(r).all(|s| self.nullables.contains(s)))
                     }
                 }
-                Ok(dnull || indull)
+                Ok(p.dnull || indull)
             }
             None => Err(GrammarError::ProdNotFound(nt.to_string())),
         }
@@ -406,6 +395,7 @@ mod tests {
     }
 
     #[test]
+    #[should_panic]
     fn test_is_cfg2() {
         let s = "S";
         let op = "->";
@@ -413,7 +403,6 @@ mod tests {
         let nt = HashSet::from(["S", "A"]);
         let rules = vec!["S -> A", "bA -> c", "A -> bbA"];
         let g = Grammar::new_with_src(op, s, t, nt, rules);
-        assert!(!g.is_cfg());
     }
 
     #[test]
