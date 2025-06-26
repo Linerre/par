@@ -16,6 +16,8 @@ pub struct Production<'p> {
     pub dnull: bool,
     // derive operator such as ->, ::=, :=, =>, etc
     pub dop: &'p str,
+    // separator between symbols on RHS and defaults to ""
+    pub sep: &'p str,
     // left-hand side
     pub lhs: &'p str,
     // all right-hand sides
@@ -41,10 +43,17 @@ impl<'p> fmt::Display for Production<'p> {
 }
 
 impl<'p> Production<'p> {
-    pub fn new(dnull: bool, dop: &'p str, lhs: &'p str, rhs: Vec<&'p str>) -> Self {
+    pub fn new(
+        dnull: bool,
+        dop: &'p str,
+        sep: &'p str,
+        lhs: &'p str,
+        rhs: Vec<&'p str>,
+    ) -> Self {
         Self {
             dnull,
             dop,
+            sep,
             lhs,
             rhs,
         }
@@ -71,6 +80,7 @@ impl<'p> Production<'p> {
 /// `nullables` contains only direct nullable non-terminals
 pub struct Grammar<'g> {
     pub start_symb: &'g str,
+    pub symb_sep: &'g str,
     pub terms: HashSet<&'g str>,
     pub non_terms: HashSet<&'g str>,
     pub nullables: HashSet<&'g str>,
@@ -88,12 +98,14 @@ impl<'a> Grammar<'a> {
     pub fn new_with_src(
         dop: &'a str,
         start_symb: &'a str,
+        symbsep: Option<&'a str>,
         terms: HashSet<&'a str>,
         non_terms: HashSet<&'a str>,
         rules: Vec<&'a str>,
     ) -> Self {
         let mut prods = HashMap::<&str, Production>::new();
         let mut nullables = HashSet::<&str>::new();
+        let symb_sep = symbsep.unwrap_or("");
         for s_raw in rules {
             let s = s_raw.trim();
             // abort on any invalid production rule
@@ -103,7 +115,11 @@ impl<'a> Grammar<'a> {
                 "error: unknown derive operator in rule {s}"
             );
 
-            let p: Vec<&str> = s.split(dop).filter(|s| !s.is_empty()).map(|s| s.trim()).collect();
+            let p: Vec<&str> = s
+                .split(dop)
+                .filter(|s| !s.is_empty())
+                .map(|s| s.trim())
+                .collect();
             assert!(
                 p.len() >= 1,
                 "error: prod must have at least one expansion but got: {}",
@@ -123,18 +139,19 @@ impl<'a> Grammar<'a> {
                 prods
                     .entry(p[0])
                     .and_modify(|r| r.rhs.push(""))
-                    .or_insert(Production::new(true, dop, p[0], vec![""]));
+                    .or_insert(Production::new(true, dop, symb_sep, p[0], vec![""]));
                 nullables.insert(p[0]);
             } else {
                 let mut rest: Vec<&str> = p[1..].to_vec();
                 prods
                     .entry(p[0])
                     .and_modify(|r| r.rhs.append(&mut rest))
-                    .or_insert(Production::new(false, dop, p[0], p[1..].to_vec()));
+                    .or_insert(Production::new(false, dop, symb_sep, p[0], p[1..].to_vec()));
             }
         }
         Self {
             start_symb,
+            symb_sep,
             terms,
             non_terms,
             nullables,
@@ -151,7 +168,7 @@ impl<'a> Grammar<'a> {
             self.first_of_nt(strs)
         } else {
             let mut fset = HashSet::<&str>::new();
-            for s in symbols!(strs) {
+            for s in symbols!(strs, self.symb_sep) {
                 if self.is_terminal(s) {
                     fset.insert(s);
                     break;
@@ -182,7 +199,7 @@ impl<'a> Grammar<'a> {
             } else if self.is_terminal(rhs) {
                 first_set.insert(rhs);
             } else {
-                for s in symbols!(rhs) {
+                for s in symbols!(rhs, self.symb_sep) {
                     if self.is_terminal(s) {
                         first_set.insert(s);
                         break;
@@ -227,7 +244,7 @@ impl<'a> Grammar<'a> {
         for p in ps {
             let rs: Vec<&str> = p.rhs_with_nt(nt);
             for r in rs {
-                let symbs: Vec<&str> = symbols!(r).collect();
+                let symbs: Vec<&str> = symbols!(r, self.symb_sep).collect();
                 let Some(pos) = symbs.iter().position(|s| s.eq(&nt)) else {
                     return Err(GrammarError::SymbolNotFound(nt.to_string()));
                 };
@@ -294,7 +311,7 @@ impl<'a> Grammar<'a> {
                         indull = indull
                             || all_nts
                                 .iter()
-                                .all(|&r| symbols!(r).all(|s| self.nullables.contains(s)))
+                                .all(|&r| symbols!(r, self.symb_sep).all(|s| self.nullables.contains(s)))
                     }
                 }
                 Ok(p.dnull || indull)
@@ -321,7 +338,7 @@ impl<'a> Grammar<'a> {
         } else if self.nullable(prod.lhs)? {
             let mut fset = self.follow(prod.lhs)?;
             for &r in prod.rhs.iter().filter(|&r| !r.is_empty()) {
-                let mut fiter = symbols!(r).take(1);
+                let mut fiter = symbols!(r, self.symb_sep).take(1);
                 if let Some(s) = fiter.next() {
                     if fset.contains(s) {
                         return Ok(true);
@@ -335,7 +352,7 @@ impl<'a> Grammar<'a> {
         } else {
             let mut first = HashSet::<&str>::with_capacity(self.terms.len() + self.non_terms.len());
             for &r in prod.rhs.iter() {
-                let mut fiter = symbols!(r).take(1);
+                let mut fiter = symbols!(r, self.symb_sep).take(1);
                 if let Some(s) = fiter.next() {
                     if first.contains(s) {
                         return Ok(true);
@@ -382,7 +399,7 @@ mod tests {
         let t = HashSet::from(["b"]);
         let nt = HashSet::from(["S", "A"]);
         let rules = vec!["S ::= A", "A ::= ", "A ::= bbA"];
-        let g = Grammar::new_with_src(op, s, t, nt, rules);
+        let g = Grammar::new_with_src(op, s, None, t, nt, rules);
 
         assert!(g.is_cfg());
         assert!(g.prods.get("A").is_some());
@@ -402,7 +419,7 @@ mod tests {
         let t = HashSet::from(["b", "c"]);
         let nt = HashSet::from(["S", "A"]);
         let rules = vec!["S -> A", "bA -> c", "A -> bbA"];
-        let g = Grammar::new_with_src(op, s, t, nt, rules);
+        let _g = Grammar::new_with_src(op, s, None, t, nt, rules);
     }
 
     #[test]
@@ -412,7 +429,7 @@ mod tests {
         let t = HashSet::from(["b", "c", ""]);
         let nt = HashSet::from(["S", "A", "B"]);
         let rules = vec!["S -> A", "A -> ", "A -> Bc", "B -> ", "B -> bb"];
-        let g = Grammar::new_with_src(op, s, t, nt, rules);
+        let g = Grammar::new_with_src(op, s, None, t, nt, rules);
         assert_eq!(g.first("A").unwrap(), HashSet::from(["", "c", "b"]));
         Ok(())
     }
@@ -424,7 +441,7 @@ mod tests {
         let t = HashSet::from(["b", "c", ""]);
         let nt = HashSet::from(["S", "A", "B"]);
         let rules = vec!["S -> A", "A -> ", "A -> Bc", "B -> ", "B -> bb"];
-        let g = Grammar::new_with_src(op, s, t, nt, rules);
+        let g = Grammar::new_with_src(op, s, None, t, nt, rules);
 
         // println!("{:?}", g.prods);
         assert_eq!(g.follow("A").unwrap(), HashSet::from(["$"]));
@@ -443,7 +460,7 @@ mod tests {
             "S -> A", "A -> ", "A -> Bc", "B -> CD", "B -> bb", "C -> ", "C -> c", "D -> ",
             "D -> d",
         ];
-        let g = Grammar::new_with_src(op, s, t, nt, rules);
+        let g = Grammar::new_with_src(op, s, None, t, nt, rules);
         assert_eq!(g.nullables, HashSet::from(["A", "C", "D"]));
         assert!(g.nullable("B").unwrap());
         Ok(())
@@ -458,7 +475,7 @@ mod tests {
         let rules = vec![
             "S -> A", "A -> cB", "A -> cD", "B -> CD", "B -> bb", "C -> c", "D -> d",
         ];
-        let g = Grammar::new_with_src(op, s, t, nt, rules);
+        let g = Grammar::new_with_src(op, s, None, t, nt, rules);
         assert!(g.ambigous_with_common_prefix()?);
         Ok(())
     }
@@ -472,7 +489,7 @@ mod tests {
         let rules = vec![
             "S -> A", "A -> Bc", "A -> BD", "B -> ", "B -> bb", "C -> c", "D -> d",
         ];
-        let g = Grammar::new_with_src(op, s, t, nt, rules);
+        let g = Grammar::new_with_src(op, s, None, t, nt, rules);
         assert!(g.ambigous_with_common_prefix()?);
         Ok(())
     }
@@ -486,7 +503,7 @@ mod tests {
         let rules = vec![
             "S -> A", "A -> ", "A -> BD", "B -> ", "B -> bb", "C -> c", "D -> d",
         ];
-        let g = Grammar::new_with_src(op, s, t, nt, rules);
+        let g = Grammar::new_with_src(op, s, None, t, nt, rules);
         assert!(!g.ambigous_with_common_prefix()?);
         Ok(())
     }

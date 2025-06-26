@@ -10,7 +10,10 @@ It aims to implement several parsing algorithms for common grammars such as LL(1
 Each production rule consists of **three** parts (separated by space)
 1. a non-terminal symbol on the LHS
 2. a derivation operator such as `->`, `::=` or `:=`
-3. a sequence of symbols on the RHS and if nothing on the RHS, the LHS can derive the empty string
+3. a sequence of symbols on the RHS and if nothing on the RHS
+   - if LHS derives the empty string, RHS is empty
+   - symbols on the RHS by defaults are separated by `""` (empty string)
+   - the separator can also be other strings such as `*`, `!`, etc and must be *explicitly* passed as an argument to the grammar constructor.
 
 For example, the following are all valid production rules
 
