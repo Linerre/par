@@ -1,7 +1,7 @@
 mod errors;
 pub mod grammar;
+pub mod table;
 pub mod misc;
-
 // TODO:
 // - [x] check if a non-terminal can be nullable
 // - [x] compute FIRST set for each non terminal
