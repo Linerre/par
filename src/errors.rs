@@ -4,7 +4,7 @@ use std::fmt;
 #[derive(Debug)]
 pub enum GrammarError {
     SymbolNotFound(String),
-    ProdNotFound(String),
+    RuleNotFound(String),
 }
 
 impl Error for GrammarError {}
@@ -15,7 +15,7 @@ impl fmt::Display for GrammarError {
             GrammarError::SymbolNotFound(nt) => {
                 write!(f, "error: non-terminal {nt} found on RHS")
             }
-            GrammarError::ProdNotFound(nt) => {
+            GrammarError::RuleNotFound(nt) => {
                 write!(
                     f,
                     "error: production rule not found for nont-terminal: {nt}"
