@@ -38,7 +38,7 @@ impl<'p> fmt::Display for Rule<'p> {
         } else {
             self.rhs.clone()
         };
-        write!(f, "{} -> {}", self.lhs, rhs.join(" | "))
+        write!(f, "{} {} {}", self.lhs, self.dop, rhs.join(" | "))
     }
 }
 
@@ -122,7 +122,7 @@ impl<'a> Grammar<'a> {
                 .collect();
             assert!(
                 p.len() >= 1,
-                "error: prod must have at least one expansion but got: {}",
+                "error: rule must have at least one expansion but got: {}",
                 p.len()
             );
             assert!(
@@ -332,12 +332,12 @@ impl<'a> Grammar<'a> {
     // A is said to have NO common prefix if either of the below two conditions met:
     // 1. if both a and b are not nullable and FIRST(a) U FIRST(b) = empty set
     // 2. if either nullable(a) but !nullable(b) and FOLLOW(A) U FIRST(b) = empty set
-    pub fn has_common_prefix(&self, prod: &Rule) -> Result<bool> {
-        if prod.rhs.len() == 1 {
+    pub fn has_common_prefix(&self, rule: &Rule) -> Result<bool> {
+        if rule.rhs.len() == 1 {
             return Ok(false);
-        } else if self.nullable(prod.lhs)? {
-            let mut fset = self.follow(prod.lhs)?;
-            for &r in prod.rhs.iter().filter(|&r| !r.is_empty()) {
+        } else if self.nullable(rule.lhs)? {
+            let mut fset = self.follow(rule.lhs)?;
+            for &r in rule.rhs.iter().filter(|&r| !r.is_empty()) {
                 let mut fiter = symbols!(r, self.symb_sep).take(1);
                 if let Some(s) = fiter.next() {
                     if fset.contains(s) {
@@ -351,7 +351,7 @@ impl<'a> Grammar<'a> {
             }
         } else {
             let mut first = HashSet::<&str>::with_capacity(self.terms.len() + self.non_terms.len());
-            for &r in prod.rhs.iter() {
+            for &r in rule.rhs.iter() {
                 let mut fiter = symbols!(r, self.symb_sep).take(1);
                 if let Some(s) = fiter.next() {
                     if first.contains(s) {
@@ -373,8 +373,8 @@ impl<'a> Grammar<'a> {
     }
 
     pub fn ambigous_with_common_prefix(&self) -> Result<bool> {
-        for prod in self.rules.values() {
-            match self.has_common_prefix(prod) {
+        for rule in self.rules.values() {
+            match self.has_common_prefix(rule) {
                 Ok(true) => return Ok(true),
                 Ok(false) => continue,
                 Err(e) => return Err(e),
