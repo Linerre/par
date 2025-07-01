@@ -5,10 +5,6 @@ use std::fmt;
 
 type Result<T> = std::result::Result<T, GrammarError>;
 
-// TODO:
-// - [] Make each rule has only one RHS
-// - [] Make one non-terminal to a vector of rules
-
 /// Construct represneting a production rule: LHS -> RHS, where
 /// LHS should be a non-terminal (usually a sigle uppercase symbol).
 /// RHS should be a vector of strs, each of which represnets a possible
@@ -25,7 +21,7 @@ pub struct Rule<'p> {
     // left-hand side
     pub lhs: &'p str,
     // all right-hand sides
-    pub rhs: &'p str
+    pub rhs: &'p str,
 }
 
 impl<'p> fmt::Display for Rule<'p> {
@@ -36,13 +32,7 @@ impl<'p> fmt::Display for Rule<'p> {
 }
 
 impl<'r> Rule<'r> {
-    pub fn new(
-        dnull: bool,
-        dop: &'r str,
-        sep: &'r str,
-        lhs: &'r str,
-        rhs: &'r str,
-    ) -> Self {
+    pub fn new(dnull: bool, dop: &'r str, sep: &'r str, lhs: &'r str, rhs: &'r str) -> Self {
         Self {
             dnull,
             dop,
@@ -241,11 +231,6 @@ impl<'a> Grammar<'a> {
                         let fsym = symbs[pos + 1];
                         let f = self.first(fsym)?;
                         follow_set = follow_set.union(&f).copied().collect();
-                        // if self.is_terminal(fsymb) {
-                        //     follow_set.insert(fsymb);
-                        // } else if self.is_non_terminal(fsymb) {
-                        //     let f = self.first_of_nt(fsymb)?;
-                        // }
                     } else if pos == symbs.len() - 1 {
                         if rule.lhs.eq(nt) {
                             break;
@@ -287,12 +272,13 @@ impl<'a> Grammar<'a> {
         };
         let dnull = rules.iter().any(|r| r.rhs.is_empty());
         let mut indull = false;
-        let all_nt_rs: Vec<&Rule> = rules.iter().filter(|r| r.all_non_terms(&self.non_terms)).collect();
+        let all_nt_rs: Vec<&Rule> = rules
+            .iter()
+            .filter(|r| r.all_non_terms(&self.non_terms))
+            .collect();
         if !all_nt_rs.is_empty() {
             indull = indull
-                || all_nt_rs
-                .iter()
-                .all(|&r| {
+                || all_nt_rs.iter().all(|&r| {
                     let rhs = r.rhs;
                     symbols!(rhs, self.symb_sep).all(|s| self.nullables.contains(s))
                 })
@@ -317,7 +303,7 @@ impl<'a> Grammar<'a> {
         };
         if rules.len() == 1 {
             return Ok(false);
-        } else if self.nullable(nt)?  {
+        } else if self.nullable(nt)? {
             let mut fset = self.follow(nt)?;
             for rule in rules.iter().filter(|r| !r.rhs.is_empty()) {
                 let rhs = rule.rhs;

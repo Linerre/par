@@ -2,12 +2,12 @@
 
 use crate::grammar::Grammar;
 
-pub struct TableEntry<> {}
+pub struct TableEntry {}
 
 pub struct LL1Table<'t> {
-    rows: Vec<&'t str>,       // rows contain non-terminals
-    cols: Vec<&'t str>,       // cols contain terminals as well as EOF
-    entries: Vec<(&'t str, &'t str, &'t str)>
+    rows: Vec<&'t str>, // rows contain non-terminals
+    cols: Vec<&'t str>, // cols contain terminals as well as EOF
+    entries: Vec<(&'t str, &'t str, &'t str)>,
 }
 
 impl<'t> LL1Table<'t> {
@@ -19,7 +19,7 @@ impl<'t> LL1Table<'t> {
         Self {
             rows,
             cols,
-            entries: Vec::new()
+            entries: Vec::new(),
         }
     }
 }
