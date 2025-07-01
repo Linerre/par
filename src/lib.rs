@@ -20,3 +20,4 @@ pub mod misc;
 // - [-] implement custom display
 //   - [x] for Production
 //   - [] for Grammar (may need to switch to BTreeMap to retain the insersion order)
+// - [] add a grammar builder to allow chain initialization

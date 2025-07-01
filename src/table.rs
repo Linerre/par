@@ -15,6 +15,7 @@ impl<'t> LL1Table<'t> {
         let rows: Vec<&str> = g.non_terms.iter().copied().collect();
         let mut cols: Vec<&str> = g.terms.iter().copied().collect();
         cols.push("$");
+        // TODO: compute entries for the table
         Self {
             rows,
             cols,

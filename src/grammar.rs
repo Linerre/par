@@ -5,6 +5,10 @@ use std::fmt;
 
 type Result<T> = std::result::Result<T, GrammarError>;
 
+// TODO:
+// - [] Make each rule has only one RHS
+// - [] Make one non-terminal to a vector of rules
+
 /// Construct represneting a production rule: LHS -> RHS, where
 /// LHS should be a non-terminal (usually a sigle uppercase symbol).
 /// RHS should be a vector of strs, each of which represnets a possible
@@ -21,34 +25,23 @@ pub struct Rule<'p> {
     // left-hand side
     pub lhs: &'p str,
     // all right-hand sides
-    pub rhs: Vec<&'p str>,
+    pub rhs: &'p str
 }
 
 impl<'p> fmt::Display for Rule<'p> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let rhs = if self.dnull {
-            let mut r: Vec<&str> = self
-                .rhs
-                .iter()
-                .filter(|&r| !r.is_empty())
-                .copied()
-                .collect();
-            r.push("ε");
-            r
-        } else {
-            self.rhs.clone()
-        };
-        write!(f, "{} {} {}", self.lhs, self.dop, rhs.join(" | "))
+        let rhs = if self.rhs.is_empty() { "ε" } else { self.rhs };
+        write!(f, "{} {} {}", self.lhs, self.dop, rhs)
     }
 }
 
-impl<'p> Rule<'p> {
+impl<'r> Rule<'r> {
     pub fn new(
         dnull: bool,
-        dop: &'p str,
-        sep: &'p str,
-        lhs: &'p str,
-        rhs: Vec<&'p str>,
+        dop: &'r str,
+        sep: &'r str,
+        lhs: &'r str,
+        rhs: &'r str,
     ) -> Self {
         Self {
             dnull,
@@ -60,15 +53,13 @@ impl<'p> Rule<'p> {
     }
 
     pub fn is_left_recusrive(&self) -> bool {
-        self.rhs.iter().find(|r| r.starts_with(self.lhs)).is_some()
+        self.rhs.starts_with(self.lhs)
     }
 
-    pub fn rhs_with_nt(&self, nt: &'p str) -> Vec<&'p str> {
-        self.rhs
-            .iter()
-            .filter(|r| r.contains(&nt))
-            .copied()
-            .collect()
+    // Check whether a rule's RHS consists of all non-terminals
+    pub fn all_non_terms(&self, nts: &HashSet<&'r str>) -> bool {
+        let rhs = self.rhs;
+        symbols!(rhs, self.sep).all(|s| nts.contains(s))
     }
 }
 
@@ -84,7 +75,7 @@ pub struct Grammar<'g> {
     pub terms: HashSet<&'g str>,
     pub non_terms: HashSet<&'g str>,
     pub nullables: HashSet<&'g str>,
-    pub rules: HashMap<&'g str, Rule<'g>>,
+    pub rules: HashMap<&'g str, Vec<Rule<'g>>>,
 }
 
 impl<'a> Grammar<'a> {
@@ -103,7 +94,7 @@ impl<'a> Grammar<'a> {
         non_terms: HashSet<&'a str>,
         rules_raw: Vec<&'a str>,
     ) -> Self {
-        let mut rules = HashMap::<&str, Rule>::new();
+        let mut rules = HashMap::<&str, Vec<Rule>>::new();
         let mut nullables = HashSet::<&str>::new();
         let symb_sep = symbsep.unwrap_or("");
         for s_raw in rules_raw {
@@ -115,38 +106,38 @@ impl<'a> Grammar<'a> {
                 "error: unknown derive operator in rule {s}"
             );
 
-            let p: Vec<&str> = s
+            let r: Vec<&str> = s
                 .split(dop)
                 .filter(|s| !s.is_empty())
                 .map(|s| s.trim())
                 .collect();
             assert!(
-                p.len() >= 1,
+                r.len() >= 1,
                 "error: rule must have at least one expansion but got: {}",
-                p.len()
+                r.len()
             );
             assert!(
-                non_terms.contains(p[0]),
+                non_terms.contains(r[0]),
                 "error: expect non-terminal symbol as LHS but got {}",
-                p[0]
+                r[0]
             );
             assert!(
-                p.iter().all(|s| !s.contains(dop)),
-                "error: derivation operator not expected but found"
+                r.iter().all(|s| !s.contains(dop)),
+                "error: found unexpected derivation operator: {dop}"
             );
 
-            if p.len() == 1 {
+            if r.len() == 1 {
                 rules
-                    .entry(p[0])
-                    .and_modify(|r| r.rhs.push(""))
-                    .or_insert(Rule::new(true, dop, symb_sep, p[0], vec![""]));
-                nullables.insert(p[0]);
+                    .entry(r[0])
+                    .and_modify(|rules| rules.push(Rule::new(true, dop, symb_sep, r[0], "")))
+                    .or_insert(vec![Rule::new(true, dop, symb_sep, r[0], "")]);
+                nullables.insert(r[0]);
             } else {
-                let mut rest: Vec<&str> = p[1..].to_vec();
+                let rest: Vec<&str> = r[1..].to_vec();
                 rules
-                    .entry(p[0])
-                    .and_modify(|r| r.rhs.append(&mut rest))
-                    .or_insert(Rule::new(false, dop, symb_sep, p[0], p[1..].to_vec()));
+                    .entry(r[0])
+                    .and_modify(|rules| rules.push(Rule::new(false, dop, symb_sep, r[0], rest[0])))
+                    .or_insert(vec![Rule::new(false, dop, symb_sep, r[0], rest[0])]);
             }
         }
         Self {
@@ -159,6 +150,12 @@ impl<'a> Grammar<'a> {
         }
     }
 
+    // Compute FIRST set for a given string derived from the grammar
+    // FIRST(empty) = {empty}
+    // FIRST(terminal) = {terminal}
+    // For X -> Y1Y2...Yn
+    // FIRST(X) = FIRST(Y1) if Y1 cannot derive the empty string
+    // FIRST(X) = FIRST(Y1) U FIRST(Y2) U ... FIRST(Yn) if Y1..Yn-1 can
     pub fn first(&self, strs: &'a str) -> Result<HashSet<&'a str>> {
         if strs.is_empty() {
             Ok(HashSet::<&str>::new())
@@ -174,7 +171,7 @@ impl<'a> Grammar<'a> {
                     break;
                 }
                 if self.is_non_terminal(s) {
-                    let f = self.first(s)?;
+                    let f = self.first_of_nt(s)?;
                     fset = fset.union(&f).copied().collect();
                     continue;
                 }
@@ -182,23 +179,20 @@ impl<'a> Grammar<'a> {
             Ok(fset)
         }
     }
-    // Compute FIRST set for a given non-terminal
-    // FIRST(empty) = {empty}
-    // FIRST(terminal) = {terminal}
-    // For X -> Y1Y2...Yn
-    // FIRST(X) = FIRST(Y1) if Y1 cannot derive the empty string
-    // FIRST(X) = FIRST(Y1) U FIRST(Y2) U ... FIRST(Yn) if Y1..Yn-1 can
+
+    // Compute FIRST set for a given non-terminal. See `first` for more details
     fn first_of_nt(&self, nt: &'a str) -> Result<HashSet<&'a str>> {
-        let Some(prod) = self.rules.get(nt) else {
+        let Some(rules) = self.rules.get(nt) else {
             return Err(GrammarError::RuleNotFound(nt.to_string()));
         };
         let mut first_set = HashSet::<&str>::new();
-        for &rhs in prod.rhs.iter() {
-            if rhs.is_empty() {
+        for r in rules.iter() {
+            if r.rhs.is_empty() {
                 first_set.insert("");
-            } else if self.is_terminal(rhs) {
-                first_set.insert(rhs);
+            } else if self.is_terminal(r.rhs) {
+                first_set.insert(r.rhs);
             } else {
+                let rhs = r.rhs;
                 for s in symbols!(rhs, self.symb_sep) {
                     if self.is_terminal(s) {
                         first_set.insert(s);
@@ -235,33 +229,30 @@ impl<'a> Grammar<'a> {
         } else {
             HashSet::<&str>::new()
         };
-
-        let ps: Vec<&Rule> = self
-            .rules
-            .values()
-            .filter(|p| p.rhs.iter().find(|&r| r.contains(&nt)).is_some())
-            .collect();
-        for p in ps {
-            let rs: Vec<&str> = p.rhs_with_nt(nt);
-            for r in rs {
-                let symbs: Vec<&str> = symbols!(r, self.symb_sep).collect();
-                let Some(pos) = symbs.iter().position(|s| s.eq(&nt)) else {
-                    return Err(GrammarError::SymbolNotFound(nt.to_string()));
-                };
-                if pos < symbs.len() - 1 {
-                    let fsymb = symbs[pos + 1];
-                    if self.is_terminal(fsymb) {
-                        follow_set.insert(fsymb);
-                    } else if self.is_non_terminal(fsymb) {
-                        let f = self.first(fsymb)?;
+        for rules in self.rules.values() {
+            for rule in rules.iter() {
+                if rule.rhs.contains(&nt) {
+                    let rhs = rule.rhs;
+                    let symbs: Vec<&str> = symbols!(rhs, self.symb_sep).collect();
+                    let Some(pos) = symbs.iter().position(|s| s.eq(&nt)) else {
+                        return Err(GrammarError::SymbolNotFound(nt.to_string()));
+                    };
+                    if pos < symbs.len() - 1 {
+                        let fsym = symbs[pos + 1];
+                        let f = self.first(fsym)?;
                         follow_set = follow_set.union(&f).copied().collect();
-                    }
-                } else if pos == symbs.len() - 1 {
-                    if p.lhs.eq(nt) {
-                        break;
-                    } else {
-                        let f = self.follow(p.lhs)?;
-                        follow_set = follow_set.union(&f).copied().collect();
+                        // if self.is_terminal(fsymb) {
+                        //     follow_set.insert(fsymb);
+                        // } else if self.is_non_terminal(fsymb) {
+                        //     let f = self.first_of_nt(fsymb)?;
+                        // }
+                    } else if pos == symbs.len() - 1 {
+                        if rule.lhs.eq(nt) {
+                            break;
+                        } else {
+                            let f = self.follow(rule.lhs)?;
+                            follow_set = follow_set.union(&f).copied().collect();
+                        }
                     }
                 }
             }
@@ -284,84 +275,82 @@ impl<'a> Grammar<'a> {
     }
 
     // A non-terminal can be nullable if it meets any of the below:
-    // 1. it can derive the empty string: X ->
-    // 2. its RHS can derive the empty string: X -> YZ where YZ all nullable
+    // 1. it can derive the empty string directly: X ->
+    // 2. it can derive the empty string indirectly: X -> YZ where YZ all nullable
     pub fn nullable(&self, nt: &str) -> Result<bool> {
         assert!(
             self.is_non_terminal(nt),
             "error: unknown non-terminal: {nt}"
         );
-        match self.rules.get(nt) {
-            Some(p) => {
-                let mut indull = false;
-                if !p.dnull {
-                    let all_nts: Vec<&str> = p
-                        .rhs
-                        .iter()
-                        .filter(|&r| {
-                            r.chars().all(|c| {
-                                let mut buf = [0; 4];
-                                let symb_str = c.encode_utf8(&mut buf);
-                                self.is_non_terminal(symb_str)
-                            })
-                        })
-                        .copied()
-                        .collect();
-                    if !all_nts.is_empty() {
-                        indull = indull
-                            || all_nts
-                                .iter()
-                                .all(|&r| symbols!(r, self.symb_sep).all(|s| self.nullables.contains(s)))
-                    }
-                }
-                Ok(p.dnull || indull)
-            }
-            None => Err(GrammarError::RuleNotFound(nt.to_string())),
+        let Some(rules) = self.rules.get(nt) else {
+            return Err(GrammarError::RuleNotFound(nt.to_string()));
+        };
+        let dnull = rules.iter().any(|r| r.rhs.is_empty());
+        let mut indull = false;
+        let all_nt_rs: Vec<&Rule> = rules.iter().filter(|r| r.all_non_terms(&self.non_terms)).collect();
+        if !all_nt_rs.is_empty() {
+            indull = indull
+                || all_nt_rs
+                .iter()
+                .all(|&r| {
+                    let rhs = r.rhs;
+                    symbols!(rhs, self.symb_sep).all(|s| self.nullables.contains(s))
+                })
         }
+        Ok(indull || dnull)
     }
 
     pub fn is_left_recusrive(&self) -> bool {
         self.rules
             .values()
-            .find(|p| p.is_left_recusrive())
-            .is_some()
+            .any(|rule| rule.iter().any(|r| r.is_left_recusrive()))
     }
 
     // For a non-terminal with multiple productions:
     // A -> a | b
     // A is said to have NO common prefix if either of the below two conditions met:
-    // 1. if both a and b are not nullable and FIRST(a) U FIRST(b) = empty set
-    // 2. if either nullable(a) but !nullable(b) and FOLLOW(A) U FIRST(b) = empty set
-    pub fn has_common_prefix(&self, rule: &Rule) -> Result<bool> {
-        if rule.rhs.len() == 1 {
+    // 1. if nullable(a) but !nullable(b) and FOLLOW(A) U FIRST(b) = empty set
+    // 2. if both a and b are not nullable and FIRST(a) U FIRST(b) = empty set
+    pub fn has_common_prefix(&self, nt: &str) -> Result<bool> {
+        let Some(rules) = self.rules.get(nt) else {
+            return Err(GrammarError::RuleNotFound(nt.to_string()));
+        };
+        if rules.len() == 1 {
             return Ok(false);
-        } else if self.nullable(rule.lhs)? {
-            let mut fset = self.follow(rule.lhs)?;
-            for &r in rule.rhs.iter().filter(|&r| !r.is_empty()) {
-                let mut fiter = symbols!(r, self.symb_sep).take(1);
+        } else if self.nullable(nt)?  {
+            let mut fset = self.follow(nt)?;
+            for rule in rules.iter().filter(|r| !r.rhs.is_empty()) {
+                let rhs = rule.rhs;
+                let mut fiter = symbols!(rhs, self.symb_sep).take(1);
                 if let Some(s) = fiter.next() {
                     if fset.contains(s) {
                         return Ok(true);
                     } else if self.is_terminal(s) {
                         fset.insert(s);
                     } else {
-                        fset = self.first(s)?;
+                        let f = self.first(s)?;
+                        if fset.is_disjoint(&f) {
+                            fset = fset.union(&f).copied().collect();
+                        } else {
+                            return Ok(true);
+                        }
                     }
                 }
             }
         } else {
-            let mut first = HashSet::<&str>::with_capacity(self.terms.len() + self.non_terms.len());
-            for &r in rule.rhs.iter() {
-                let mut fiter = symbols!(r, self.symb_sep).take(1);
+            let mut fset = HashSet::<&str>::with_capacity(self.terms.len() + self.non_terms.len());
+            for rule in rules.iter() {
+                let rhs = rule.rhs;
+                let mut fiter = symbols!(rhs, self.symb_sep).take(1);
                 if let Some(s) = fiter.next() {
-                    if first.contains(s) {
+                    if fset.contains(s) {
                         return Ok(true);
                     } else if self.is_terminal(s) {
-                        first.insert(s);
+                        fset.insert(s);
                     } else {
-                        let nt_first = self.first(s)?;
-                        if first.is_disjoint(&nt_first) {
-                            first = first.union(&nt_first).copied().collect();
+                        let f = self.first(s)?;
+                        if fset.is_disjoint(&f) {
+                            fset = fset.union(&f).copied().collect();
                         } else {
                             return Ok(true);
                         }
@@ -373,8 +362,8 @@ impl<'a> Grammar<'a> {
     }
 
     pub fn ambigous_with_common_prefix(&self) -> Result<bool> {
-        for rule in self.rules.values() {
-            match self.has_common_prefix(rule) {
+        for key in self.rules.keys() {
+            match self.has_common_prefix(key) {
                 Ok(true) => return Ok(true),
                 Ok(false) => continue,
                 Err(e) => return Err(e),
@@ -403,11 +392,11 @@ mod tests {
 
         assert!(g.is_cfg());
         assert!(g.rules.get("A").is_some());
-        assert!(g.rules.get("A").unwrap().dnull);
-        assert_eq!(g.rules.get("A").unwrap().lhs, "A");
-        assert_eq!(g.rules.get("A").unwrap().rhs, vec!["", "bbA"]);
-        for p in g.rules.values() {
-            println!("{}", p);
+        assert_eq!(g.rules.get("A").unwrap().len(), 2);
+        for rules in g.rules.values() {
+            for rule in rules.iter() {
+                println!("{}", rule);
+            }
         }
     }
 
